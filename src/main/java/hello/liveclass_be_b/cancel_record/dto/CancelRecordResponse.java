@@ -5,6 +5,7 @@ import hello.liveclass_be_b.sale_record.entity.SaleRecord;
 import lombok.Builder;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Builder
 public record CancelRecordResponse(
@@ -16,6 +17,7 @@ public record CancelRecordResponse(
         Long refundAmount,
         OffsetDateTime canceledAt
 ) {
+    private static final ZoneOffset KST = ZoneOffset.of("+09:00");
 
     public static CancelRecordResponse from(CancelRecord cancelRecord) {
         SaleRecord saleRecord = cancelRecord.getSaleRecord();
@@ -27,7 +29,7 @@ public record CancelRecordResponse(
                 .studentId(saleRecord.getStudentId())
                 .saleAmount(saleRecord.getAmount())
                 .refundAmount(cancelRecord.getAmount())
-                .canceledAt(cancelRecord.getCanceledAt())
+                .canceledAt(cancelRecord.getCanceledAt().withOffsetSameInstant(KST))
                 .build();
     }
 }
