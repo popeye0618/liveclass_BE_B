@@ -2,6 +2,7 @@ package hello.liveclass_be_b.sale_record.repository;
 
 import hello.liveclass_be_b.sale_record.entity.SaleRecord;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.OffsetDateTime;
@@ -21,8 +22,21 @@ public interface SaleRecordRepository extends JpaRepository<SaleRecord, String> 
       and sr.paidAt < :endExclusive
 """)
     List<SaleRecord> findByCreatorIdAndPaidAtRange(
-            String creatorId,
-            OffsetDateTime start,
-            OffsetDateTime end
+            @Param("creatorId") String creatorId,
+            @Param("startInclusive") OffsetDateTime start,
+            @Param("endExclusive") OffsetDateTime end
+    );
+
+    @Query("""
+    select sr
+    from SaleRecord sr
+    join fetch sr.course c
+    join fetch c.creator creator
+    where sr.paidAt >= :start
+      and sr.paidAt < :end
+""")
+    List<SaleRecord> findAllByPaidAtRange(
+            @Param("start") OffsetDateTime start,
+            @Param("end") OffsetDateTime end
     );
 }
