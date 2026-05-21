@@ -4,13 +4,20 @@ import hello.liveclass_be_b.cancel_record.entity.CancelRecord;
 import hello.liveclass_be_b.cancel_record.repository.CancelRecordRepository;
 import hello.liveclass_be_b.course.entity.Course;
 import hello.liveclass_be_b.creator.entity.Creator;
+import hello.liveclass_be_b.creator.repository.CreatorRepository;
 import hello.liveclass_be_b.global.error.BusinessException;
 import hello.liveclass_be_b.global.error.GlobalErrorCode;
 import hello.liveclass_be_b.sale_record.entity.SaleRecord;
 import hello.liveclass_be_b.sale_record.repository.SaleRecordRepository;
 import hello.liveclass_be_b.settlement.dto.MonthlySettlementResponse;
+import hello.liveclass_be_b.settlement.dto.SettlementCreateRequest;
+import hello.liveclass_be_b.settlement.dto.SettlementResponse;
 import hello.liveclass_be_b.settlement.dto.TotalSettlementResponse;
+import hello.liveclass_be_b.settlement.entity.Settlement;
+import hello.liveclass_be_b.settlement.enums.SettlementStatus;
+import hello.liveclass_be_b.settlement.error.SettlementErrorCode;
 import hello.liveclass_be_b.settlement.policy.PlatformFeePolicy;
+import hello.liveclass_be_b.settlement.repository.SettlementRepository;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,10 +30,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +52,12 @@ class SettlementServiceImplTest {
 
     @Mock
     private PlatformFeePolicy platformFeePolicy;
+
+    @Mock
+    private CreatorRepository creatorRepository;
+
+    @Mock
+    private SettlementRepository settlementRepository;
 
     @InjectMocks
     private SettlementServiceImpl settlementService;
@@ -211,6 +228,138 @@ class SettlementServiceImplTest {
         verifyNoInteractions(saleRecordRepository, cancelRecordRepository, platformFeePolicy);
     }
 
+    @Test
+    @DisplayName("운영자가 월별 정산을 생성하면 PENDING 상태로 저장한다")
+    void createMonthlySettlement() {
+        // given
+        SettlementCreateRequest request = new SettlementCreateRequest("creator-1", "2025-03");
+        Creator creator = createCreator("creator-1", "김강사");
+
+        OffsetDateTime start = OffsetDateTime.parse("2025-03-01T00:00:00+09:00");
+        OffsetDateTime end = OffsetDateTime.parse("2025-04-01T00:00:00+09:00");
+
+        List<SaleRecord> saleRecords = List.of(
+                createSaleRecord("sale-1", createCourse("course-1", creator), "student-1", 50000L, "2025-03-05T10:00:00+09:00"),
+                createSaleRecord("sale-2", createCourse("course-1", creator), "student-2", 50000L, "2025-03-15T14:30:00+09:00"),
+                createSaleRecord("sale-3", createCourse("course-2", creator), "student-3", 80000L, "2025-03-20T09:00:00+09:00"),
+                createSaleRecord("sale-4", createCourse("course-2", creator), "student-4", 80000L, "2025-03-22T11:00:00+09:00")
+        );
+
+        List<CancelRecord> cancelRecords = List.of(
+                createCancelRecord("cancel-1", saleRecords.get(2), 80000L, "2025-03-25T10:00:00+09:00"),
+                createCancelRecord("cancel-2", saleRecords.get(3), 30000L, "2025-03-28T10:00:00+09:00")
+        );
+
+        given(creatorRepository.findById(request.creatorId()))
+                .willReturn(Optional.of(creator));
+        given(settlementRepository.existsByCreatorAndMonth(request.creatorId(), request.settlementMonth()))
+                .willReturn(false);
+        given(saleRecordRepository.findByCreatorIdAndPaidAtRange(request.creatorId(), start, end))
+                .willReturn(saleRecords);
+        given(cancelRecordRepository.findByCreatorIdAndCanceledAtRange(request.creatorId(), start, end))
+                .willReturn(cancelRecords);
+        given(platformFeePolicy.calculateFee(150000L))
+                .willReturn(30000L);
+        given(platformFeePolicy.getFeeRate())
+                .willReturn(20);
+        given(settlementRepository.saveAndFlush(any(Settlement.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        SettlementResponse response = settlementService.createMonthlySettlement(request);
+
+        // then
+        assertThat(response.creatorId()).isEqualTo("creator-1");
+        assertThat(response.settlementMonth()).isEqualTo("2025-03");
+        assertThat(response.totalSalesAmount()).isEqualTo(260000L);
+        assertThat(response.totalRefundAmount()).isEqualTo(110000L);
+        assertThat(response.netSalesAmount()).isEqualTo(150000L);
+        assertThat(response.feeRate()).isEqualTo(20);
+        assertThat(response.platformFeeAmount()).isEqualTo(30000L);
+        assertThat(response.settlementAmount()).isEqualTo(120000L);
+        assertThat(response.salesCount()).isEqualTo(4);
+        assertThat(response.cancelCount()).isEqualTo(2);
+        assertThat(response.status()).isEqualTo(SettlementStatus.PENDING);
+        assertThat(response.calculatedAt()).isNotNull();
+        assertThat(response.confirmedAt()).isNull();
+        assertThat(response.paidAt()).isNull();
+
+        verify(settlementRepository).saveAndFlush(any(Settlement.class));
+    }
+
+    @Test
+    @DisplayName("이미 같은 월 정산이 있으면 정산을 생성할 수 없다")
+    void createMonthlySettlementFailWhenAlreadyExists() {
+        // given
+        SettlementCreateRequest request = new SettlementCreateRequest("creator-1", "2025-03");
+        Creator creator = createCreator("creator-1", "김강사");
+
+        given(creatorRepository.findById(request.creatorId()))
+                .willReturn(Optional.of(creator));
+        given(settlementRepository.existsByCreatorAndMonth(request.creatorId(), request.settlementMonth()))
+                .willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> settlementService.createMonthlySettlement(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS);
+
+        verify(settlementRepository, never()).saveAndFlush(any(Settlement.class));
+        verifyNoInteractions(saleRecordRepository, cancelRecordRepository, platformFeePolicy);
+    }
+
+    @Test
+    @DisplayName("PENDING 상태의 정산을 CONFIRMED 상태로 확정한다")
+    void confirmSettlement() {
+        // given
+        Settlement settlement = createSettlement(SettlementStatus.PENDING);
+
+        given(settlementRepository.findById(1L))
+                .willReturn(Optional.of(settlement));
+
+        // when
+        SettlementResponse response = settlementService.confirmSettlement(1L);
+
+        // then
+        assertThat(response.status()).isEqualTo(SettlementStatus.CONFIRMED);
+        assertThat(response.confirmedAt()).isNotNull();
+        assertThat(response.paidAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("CONFIRMED 상태가 아니면 지급 완료 처리할 수 없다")
+    void paySettlementFailWhenStatusIsNotConfirmed() {
+        // given
+        Settlement settlement = createSettlement(SettlementStatus.PENDING);
+
+        given(settlementRepository.findById(1L))
+                .willReturn(Optional.of(settlement));
+
+        // when & then
+        assertThatThrownBy(() -> settlementService.paySettlement(1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(SettlementErrorCode.INVALID_STATUS_CHANGE);
+    }
+
+    @Test
+    @DisplayName("CONFIRMED 상태의 정산을 PAID 상태로 지급 완료 처리한다")
+    void paySettlement() {
+        // given
+        Settlement settlement = createSettlement(SettlementStatus.CONFIRMED);
+
+        given(settlementRepository.findById(1L))
+                .willReturn(Optional.of(settlement));
+
+        // when
+        SettlementResponse response = settlementService.paySettlement(1L);
+
+        // then
+        assertThat(response.status()).isEqualTo(SettlementStatus.PAID);
+        assertThat(response.paidAt()).isNotNull();
+    }
+
     private Creator createCreator(String id, String name) {
         return Creator.builder()
                 .id(id)
@@ -253,6 +402,23 @@ class SettlementServiceImplTest {
                 .saleRecord(saleRecord)
                 .amount(amount)
                 .canceledAt(OffsetDateTime.parse(canceledAt))
+                .build();
+    }
+
+    private Settlement createSettlement(SettlementStatus status) {
+        return Settlement.builder()
+                .creator(createCreator("creator-1", "김강사"))
+                .settlementMonth("2025-03")
+                .totalSalesAmount(260000L)
+                .totalRefundAmount(110000L)
+                .netSalesAmount(150000L)
+                .feeRate(20)
+                .platformFeeAmount(30000L)
+                .settlementAmount(120000L)
+                .salesCount(4)
+                .cancelCount(2)
+                .status(status)
+                .calculatedAt(OffsetDateTime.parse("2025-04-01T00:00:00+09:00"))
                 .build();
     }
 

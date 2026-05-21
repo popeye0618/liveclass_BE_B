@@ -2,6 +2,8 @@ package hello.liveclass_be_b.settlement.entity;
 
 import hello.liveclass_be_b.creator.entity.Creator;
 import hello.liveclass_be_b.settlement.enums.SettlementStatus;
+import hello.liveclass_be_b.global.error.BusinessException;
+import hello.liveclass_be_b.settlement.error.SettlementErrorCode;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -98,6 +100,24 @@ public class Settlement {
         this.status = status;
         this.calculatedAt = calculatedAt;
         this.confirmedAt = confirmedAt;
+        this.paidAt = paidAt;
+    }
+
+    public void confirm(OffsetDateTime confirmedAt) {
+        if (status != SettlementStatus.PENDING) {
+            throw new BusinessException(SettlementErrorCode.INVALID_STATUS_CHANGE);
+        }
+
+        this.status = SettlementStatus.CONFIRMED;
+        this.confirmedAt = confirmedAt;
+    }
+
+    public void pay(OffsetDateTime paidAt) {
+        if (status != SettlementStatus.CONFIRMED) {
+            throw new BusinessException(SettlementErrorCode.INVALID_STATUS_CHANGE);
+        }
+
+        this.status = SettlementStatus.PAID;
         this.paidAt = paidAt;
     }
 }
