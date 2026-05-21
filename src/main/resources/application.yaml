@@ -18,3 +18,9 @@ spring:
       hibernate:
         format_sql: ${JPA_FORMAT_SQL}
     show-sql: ${JPA_SHOW_SQL}
+    defer-datasource-initialization: true
+
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
