@@ -2,6 +2,7 @@ package hello.liveclass_be_b.settlement.service;
 
 import hello.liveclass_be_b.settlement.dto.MonthlySettlementResponse;
 import hello.liveclass_be_b.settlement.dto.SettlementCreateRequest;
+import hello.liveclass_be_b.settlement.dto.SettlementExcelFile;
 import hello.liveclass_be_b.settlement.dto.SettlementResponse;
 import hello.liveclass_be_b.settlement.dto.TotalSettlementResponse;
 
@@ -18,4 +19,6 @@ public interface SettlementService {
     SettlementResponse confirmSettlement(Long settlementId);
 
     SettlementResponse paySettlement(Long settlementId);
+
+    SettlementExcelFile downloadSettlementExcel(String startMonth, String endMonth);
 }

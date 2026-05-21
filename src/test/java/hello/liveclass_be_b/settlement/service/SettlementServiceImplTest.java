@@ -11,11 +11,13 @@ import hello.liveclass_be_b.sale_record.entity.SaleRecord;
 import hello.liveclass_be_b.sale_record.repository.SaleRecordRepository;
 import hello.liveclass_be_b.settlement.dto.MonthlySettlementResponse;
 import hello.liveclass_be_b.settlement.dto.SettlementCreateRequest;
+import hello.liveclass_be_b.settlement.dto.SettlementExcelFile;
 import hello.liveclass_be_b.settlement.dto.SettlementResponse;
 import hello.liveclass_be_b.settlement.dto.TotalSettlementResponse;
 import hello.liveclass_be_b.settlement.entity.Settlement;
 import hello.liveclass_be_b.settlement.enums.SettlementStatus;
 import hello.liveclass_be_b.settlement.error.SettlementErrorCode;
+import hello.liveclass_be_b.settlement.excel.SettlementExcelGenerator;
 import hello.liveclass_be_b.settlement.policy.PlatformFeePolicy;
 import hello.liveclass_be_b.settlement.repository.SettlementRepository;
 import org.assertj.core.api.Assertions;
@@ -58,6 +60,9 @@ class SettlementServiceImplTest {
 
     @Mock
     private SettlementRepository settlementRepository;
+
+    @Mock
+    private SettlementExcelGenerator settlementExcelGenerator;
 
     @InjectMocks
     private SettlementServiceImpl settlementService;
@@ -358,6 +363,80 @@ class SettlementServiceImplTest {
         // then
         assertThat(response.status()).isEqualTo(SettlementStatus.PAID);
         assertThat(response.paidAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("정산 내역 엑셀 파일을 다운로드한다")
+    void downloadSettlementExcel() {
+        // given
+        String startMonth = "2025-01";
+        String endMonth = "2025-03";
+        List<Settlement> settlements = List.of(createSettlement(SettlementStatus.PAID));
+        byte[] content = new byte[]{1, 2, 3};
+
+        given(settlementRepository.findAllByMonthRange(startMonth, endMonth))
+                .willReturn(settlements);
+        given(settlementExcelGenerator.generate(settlements))
+                .willReturn(content);
+
+        // when
+        SettlementExcelFile excelFile = settlementService.downloadSettlementExcel(startMonth, endMonth);
+
+        // then
+        assertThat(excelFile.fileName()).isEqualTo("settlements_2025-01_2025-03.xlsx");
+        assertThat(excelFile.content()).isEqualTo(content);
+
+        verify(settlementRepository).findAllByMonthRange(startMonth, endMonth);
+        verify(settlementExcelGenerator).generate(settlements);
+    }
+
+    @Test
+    @DisplayName("정산 내역이 없어도 헤더만 있는 엑셀 파일을 다운로드한다")
+    void downloadSettlementExcelWhenEmpty() {
+        // given
+        String startMonth = "2025-01";
+        String endMonth = "2025-03";
+        List<Settlement> settlements = List.of();
+        byte[] content = new byte[]{1, 2, 3};
+
+        given(settlementRepository.findAllByMonthRange(startMonth, endMonth))
+                .willReturn(settlements);
+        given(settlementExcelGenerator.generate(settlements))
+                .willReturn(content);
+
+        // when
+        SettlementExcelFile excelFile = settlementService.downloadSettlementExcel(startMonth, endMonth);
+
+        // then
+        assertThat(excelFile.fileName()).isEqualTo("settlements_2025-01_2025-03.xlsx");
+        assertThat(excelFile.content()).isEqualTo(content);
+
+        verify(settlementRepository).findAllByMonthRange(startMonth, endMonth);
+        verify(settlementExcelGenerator).generate(settlements);
+    }
+
+    @Test
+    @DisplayName("엑셀 다운로드 월 형식이 올바르지 않으면 예외가 발생한다")
+    void downloadSettlementExcelFailWhenMonthFormatInvalid() {
+        // when & then
+        assertThatThrownBy(() -> settlementService.downloadSettlementExcel("2025/01", "2025-03"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(GlobalErrorCode.INVALID_REQUEST_PARAMETER);
+
+        verifyNoInteractions(settlementRepository, settlementExcelGenerator);
+    }
+
+    @Test
+    @DisplayName("엑셀 다운로드 시작 월이 종료 월보다 늦으면 예외가 발생한다")
+    void downloadSettlementExcelFailWhenStartMonthIsAfterEndMonth() {
+        // when & then
+        assertThatThrownBy(() -> settlementService.downloadSettlementExcel("2025-04", "2025-03"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(GlobalErrorCode.INVALID_REQUEST_PARAMETER);
+
+        verifyNoInteractions(settlementRepository, settlementExcelGenerator);
     }
 
     private Creator createCreator(String id, String name) {

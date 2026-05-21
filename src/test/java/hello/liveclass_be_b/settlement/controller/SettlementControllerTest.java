@@ -5,6 +5,7 @@ import hello.liveclass_be_b.global.error.BusinessException;
 import hello.liveclass_be_b.global.error.GlobalErrorCode;
 import hello.liveclass_be_b.settlement.dto.MonthlySettlementResponse;
 import hello.liveclass_be_b.settlement.dto.SettlementCreateRequest;
+import hello.liveclass_be_b.settlement.dto.SettlementExcelFile;
 import hello.liveclass_be_b.settlement.dto.SettlementResponse;
 import hello.liveclass_be_b.settlement.dto.TotalSettlementResponse;
 import hello.liveclass_be_b.settlement.enums.SettlementStatus;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -22,11 +24,14 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -39,6 +44,7 @@ class SettlementControllerTest {
     private static final String ADMIN_MONTHLY_SETTLEMENT_URL = "/api/v1/admin/settlements/monthly";
     private static final String ADMIN_SETTLEMENT_CONFIRM_URL = "/api/v1/admin/settlements/{settlementId}/confirm";
     private static final String ADMIN_SETTLEMENT_PAY_URL = "/api/v1/admin/settlements/{settlementId}/pay";
+    private static final String ADMIN_SETTLEMENT_EXCEL_URL = "/api/v1/admin/settlements/excel";
 
     @Autowired
     private MockMvc mockMvc;
@@ -261,6 +267,56 @@ class SettlementControllerTest {
                 .andExpect(jsonPath("$.error.code").value("SETTLEMENT_400_001"));
 
         verify(settlementService).paySettlement(settlementId);
+    }
+
+    @Test
+    @DisplayName("운영자가 정산 내역 엑셀 파일을 다운로드한다")
+    void downloadSettlementExcel() throws Exception {
+        // given
+        String startMonth = "2025-01";
+        String endMonth = "2025-03";
+        SettlementExcelFile excelFile = new SettlementExcelFile(
+                "settlements_2025-01_2025-03.xlsx",
+                new byte[]{1, 2, 3}
+        );
+
+        given(settlementService.downloadSettlementExcel(startMonth, endMonth))
+                .willReturn(excelFile);
+
+        // when & then
+        mockMvc.perform(get(ADMIN_SETTLEMENT_EXCEL_URL)
+                        .param("startMonth", startMonth)
+                        .param("endMonth", endMonth))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("settlements_2025-01_2025-03.xlsx")))
+                .andExpect(content().bytes(new byte[]{1, 2, 3}));
+
+        verify(settlementService).downloadSettlementExcel(startMonth, endMonth);
+    }
+
+    @Test
+    @DisplayName("엑셀 다운로드 월 형식이 올바르지 않으면 400을 반환한다")
+    void downloadSettlementExcelFailWhenMonthFormatInvalid() throws Exception {
+        // given
+        String startMonth = "2025/01";
+        String endMonth = "2025-03";
+
+        given(settlementService.downloadSettlementExcel(startMonth, endMonth))
+                .willThrow(new BusinessException(
+                        GlobalErrorCode.INVALID_REQUEST_PARAMETER,
+                        "정산 연월은 yyyy-MM 형식이어야 합니다."
+                ));
+
+        // when & then
+        mockMvc.perform(get(ADMIN_SETTLEMENT_EXCEL_URL)
+                        .param("startMonth", startMonth)
+                        .param("endMonth", endMonth))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("GLOBAL_400_002"));
+
+        verify(settlementService).downloadSettlementExcel(startMonth, endMonth);
     }
 
     private MonthlySettlementResponse createMonthlySettlementResponse() {
