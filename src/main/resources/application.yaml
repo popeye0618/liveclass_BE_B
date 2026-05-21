@@ -1,0 +1,20 @@
+spring:
+
+  datasource:
+    url: ${DB_URL}
+    driver-class-name: ${DB_DRIVER_CLASS_NAME}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  h2:
+    console:
+      enabled: ${H2_CONSOLE_ENABLED}
+      path: ${H2_CONSOLE_PATH}
+
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO}
+    properties:
+      hibernate:
+        format_sql: ${JPA_FORMAT_SQL}
+    show-sql: ${JPA_SHOW_SQL}
