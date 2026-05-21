@@ -2,14 +2,24 @@ package hello.liveclass_be_b.settlement.service;
 
 import hello.liveclass_be_b.cancel_record.entity.CancelRecord;
 import hello.liveclass_be_b.cancel_record.repository.CancelRecordRepository;
+import hello.liveclass_be_b.creator.entity.Creator;
+import hello.liveclass_be_b.creator.error.CreatorErrorCode;
+import hello.liveclass_be_b.creator.repository.CreatorRepository;
 import hello.liveclass_be_b.global.error.BusinessException;
 import hello.liveclass_be_b.global.error.GlobalErrorCode;
 import hello.liveclass_be_b.sale_record.entity.SaleRecord;
 import hello.liveclass_be_b.sale_record.repository.SaleRecordRepository;
 import hello.liveclass_be_b.settlement.dto.MonthlySettlementResponse;
+import hello.liveclass_be_b.settlement.dto.SettlementCreateRequest;
+import hello.liveclass_be_b.settlement.dto.SettlementResponse;
 import hello.liveclass_be_b.settlement.dto.TotalSettlementResponse;
+import hello.liveclass_be_b.settlement.entity.Settlement;
+import hello.liveclass_be_b.settlement.enums.SettlementStatus;
+import hello.liveclass_be_b.settlement.error.SettlementErrorCode;
 import hello.liveclass_be_b.settlement.policy.PlatformFeePolicy;
+import hello.liveclass_be_b.settlement.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +39,8 @@ public class SettlementServiceImpl implements SettlementService {
 
     private final SaleRecordRepository saleRecordRepository;
     private final CancelRecordRepository cancelRecordRepository;
+    private final CreatorRepository creatorRepository;
+    private final SettlementRepository settlementRepository;
     private final PlatformFeePolicy platformFeePolicy;
 
     private static final ZoneOffset KST = ZoneOffset.of("+09:00");
@@ -36,7 +48,73 @@ public class SettlementServiceImpl implements SettlementService {
     @Override
     public MonthlySettlementResponse getMonthlySettlementByCreator(String creatorId, String date) {
         YearMonth yearMonth = parseYearMonth(date);
+        SettlementCalculation calculation = calculateMonthlySettlement(creatorId, yearMonth);
 
+        return calculation.toMonthlyResponse();
+    }
+
+    @Override
+    @Transactional
+    public SettlementResponse createMonthlySettlement(SettlementCreateRequest request) {
+        YearMonth yearMonth = parseYearMonth(request.settlementMonth());
+        String settlementMonth = yearMonth.toString();
+
+        Creator creator = creatorRepository.findById(request.creatorId())
+                .orElseThrow(() -> new BusinessException(CreatorErrorCode.CREATOR_NOT_FOUND));
+
+        if (settlementRepository.existsByCreatorAndMonth(creator.getId(), settlementMonth)) {
+            throw new BusinessException(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS);
+        }
+
+        SettlementCalculation calculation = calculateMonthlySettlement(creator.getId(), yearMonth);
+
+        Settlement settlement = Settlement.builder()
+                .creator(creator)
+                .settlementMonth(settlementMonth)
+                .totalSalesAmount(calculation.totalSalesAmount())
+                .totalRefundAmount(calculation.totalRefundAmount())
+                .netSalesAmount(calculation.netSalesAmount())
+                .feeRate(platformFeePolicy.getFeeRate())
+                .platformFeeAmount(calculation.platformFeeAmount())
+                .settlementAmount(calculation.settlementAmount())
+                .salesCount(calculation.salesCount())
+                .cancelCount(calculation.cancelCount())
+                .status(SettlementStatus.PENDING)
+                .calculatedAt(now())
+                .build();
+
+        try {
+            Settlement savedSettlement = settlementRepository.saveAndFlush(settlement);
+            return SettlementResponse.from(savedSettlement);
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS);
+        }
+    }
+
+    @Override
+    @Transactional
+    public SettlementResponse confirmSettlement(Long settlementId) {
+        Settlement settlement = getSettlement(settlementId);
+        settlement.confirm(now());
+
+        return SettlementResponse.from(settlement);
+    }
+
+    @Override
+    @Transactional
+    public SettlementResponse paySettlement(Long settlementId) {
+        Settlement settlement = getSettlement(settlementId);
+        settlement.pay(now());
+
+        return SettlementResponse.from(settlement);
+    }
+
+    private Settlement getSettlement(Long settlementId) {
+        return settlementRepository.findById(settlementId)
+                .orElseThrow(() -> new BusinessException(SettlementErrorCode.SETTLEMENT_NOT_FOUND));
+    }
+
+    private SettlementCalculation calculateMonthlySettlement(String creatorId, YearMonth yearMonth) {
         List<SaleRecord> salesRecords = getSalesRecord(creatorId, yearMonth);
         List<CancelRecord> cancelRecords = getCancelRecord(creatorId, yearMonth);
 
@@ -56,15 +134,15 @@ public class SettlementServiceImpl implements SettlementService {
         long platformFeeAmount = platformFeePolicy.calculateFee(netSalesAmount);
         long settlementAmount = netSalesAmount - platformFeeAmount;
 
-        return MonthlySettlementResponse.builder()
-                .totalSalesAmount(totalSalesAmount)
-                .totalRefundAmount(totalRefundAmount)
-                .netSalesAmount(netSalesAmount)
-                .platformFeeAmount(platformFeeAmount)
-                .settlementAmount(settlementAmount)
-                .salesCount(salesCount)
-                .cancelCount(cancelCount)
-                .build();
+        return new SettlementCalculation(
+                totalSalesAmount,
+                totalRefundAmount,
+                netSalesAmount,
+                platformFeeAmount,
+                settlementAmount,
+                salesCount,
+                cancelCount
+        );
     }
 
     @Override
@@ -168,6 +246,13 @@ public class SettlementServiceImpl implements SettlementService {
     }
 
     private YearMonth parseYearMonth(String date) {
+        if (date == null) {
+            throw new BusinessException(
+                    GlobalErrorCode.INVALID_REQUEST_PARAMETER,
+                    "조회 연월은 yyyy-MM 형식이어야 합니다."
+            );
+        }
+
         try {
             return YearMonth.parse(date);
         } catch (DateTimeParseException e) {
@@ -206,5 +291,32 @@ public class SettlementServiceImpl implements SettlementService {
                 .atOffset(KST);
 
         return cancelRecordRepository.findByCreatorIdAndCanceledAtRange(creatorId, start, end);
+    }
+
+    private OffsetDateTime now() {
+        return OffsetDateTime.now(KST);
+    }
+
+    private record SettlementCalculation(
+            Long totalSalesAmount,
+            Long totalRefundAmount,
+            Long netSalesAmount,
+            Long platformFeeAmount,
+            Long settlementAmount,
+            Integer salesCount,
+            Integer cancelCount
+    ) {
+
+        private MonthlySettlementResponse toMonthlyResponse() {
+            return MonthlySettlementResponse.builder()
+                    .totalSalesAmount(totalSalesAmount)
+                    .totalRefundAmount(totalRefundAmount)
+                    .netSalesAmount(netSalesAmount)
+                    .platformFeeAmount(platformFeeAmount)
+                    .settlementAmount(settlementAmount)
+                    .salesCount(salesCount)
+                    .cancelCount(cancelCount)
+                    .build();
+        }
     }
 }
