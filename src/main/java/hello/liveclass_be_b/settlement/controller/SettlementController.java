@@ -3,16 +3,21 @@ package hello.liveclass_be_b.settlement.controller;
 import hello.liveclass_be_b.global.response.ApiResponse;
 import hello.liveclass_be_b.settlement.dto.MonthlySettlementResponse;
 import hello.liveclass_be_b.settlement.dto.SettlementCreateRequest;
+import hello.liveclass_be_b.settlement.dto.SettlementExcelFile;
 import hello.liveclass_be_b.settlement.dto.SettlementResponse;
 import hello.liveclass_be_b.settlement.dto.TotalSettlementResponse;
 import hello.liveclass_be_b.settlement.service.SettlementService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.nio.charset.StandardCharsets;
 
 @RestController
 @RequiredArgsConstructor
@@ -72,5 +77,27 @@ public class SettlementController {
         SettlementResponse response = settlementService.paySettlement(settlementId);
 
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping("/admin/settlements/excel")
+    public ResponseEntity<byte[]> downloadSettlementExcel(
+            @RequestParam String startMonth,
+            @RequestParam String endMonth
+    ) {
+        SettlementExcelFile excelFile = settlementService.downloadSettlementExcel(
+                startMonth,
+                endMonth
+        );
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .header(
+                        HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment()
+                                .filename(excelFile.fileName(), StandardCharsets.UTF_8)
+                                .build()
+                                .toString()
+                )
+                .body(excelFile.content());
     }
 }

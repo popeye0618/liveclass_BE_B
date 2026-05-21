@@ -11,11 +11,13 @@ import hello.liveclass_be_b.sale_record.entity.SaleRecord;
 import hello.liveclass_be_b.sale_record.repository.SaleRecordRepository;
 import hello.liveclass_be_b.settlement.dto.MonthlySettlementResponse;
 import hello.liveclass_be_b.settlement.dto.SettlementCreateRequest;
+import hello.liveclass_be_b.settlement.dto.SettlementExcelFile;
 import hello.liveclass_be_b.settlement.dto.SettlementResponse;
 import hello.liveclass_be_b.settlement.dto.TotalSettlementResponse;
 import hello.liveclass_be_b.settlement.entity.Settlement;
 import hello.liveclass_be_b.settlement.enums.SettlementStatus;
 import hello.liveclass_be_b.settlement.error.SettlementErrorCode;
+import hello.liveclass_be_b.settlement.excel.SettlementExcelGenerator;
 import hello.liveclass_be_b.settlement.policy.PlatformFeePolicy;
 import hello.liveclass_be_b.settlement.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +43,7 @@ public class SettlementServiceImpl implements SettlementService {
     private final CancelRecordRepository cancelRecordRepository;
     private final CreatorRepository creatorRepository;
     private final SettlementRepository settlementRepository;
+    private final SettlementExcelGenerator settlementExcelGenerator;
     private final PlatformFeePolicy platformFeePolicy;
 
     private static final ZoneOffset KST = ZoneOffset.of("+09:00");
@@ -107,6 +110,29 @@ public class SettlementServiceImpl implements SettlementService {
         settlement.pay(now());
 
         return SettlementResponse.from(settlement);
+    }
+
+    @Override
+    public SettlementExcelFile downloadSettlementExcel(String startMonth, String endMonth) {
+        YearMonth start = parseSettlementMonth(startMonth);
+        YearMonth end = parseSettlementMonth(endMonth);
+
+        if (start.isAfter(end)) {
+            throw new BusinessException(
+                    GlobalErrorCode.INVALID_REQUEST_PARAMETER,
+                    "시작 정산 연월은 종료 정산 연월보다 늦을 수 없습니다."
+            );
+        }
+
+        List<Settlement> settlements = settlementRepository.findAllByMonthRange(
+                start.toString(),
+                end.toString()
+        );
+
+        byte[] content = settlementExcelGenerator.generate(settlements);
+        String fileName = "settlements_" + start + "_" + end + ".xlsx";
+
+        return new SettlementExcelFile(fileName, content);
     }
 
     private Settlement getSettlement(Long settlementId) {
@@ -259,6 +285,24 @@ public class SettlementServiceImpl implements SettlementService {
             throw new BusinessException(
                     GlobalErrorCode.INVALID_REQUEST_PARAMETER,
                     "조회 연월은 yyyy-MM 형식이어야 합니다."
+            );
+        }
+    }
+
+    private YearMonth parseSettlementMonth(String month) {
+        if (month == null) {
+            throw new BusinessException(
+                    GlobalErrorCode.INVALID_REQUEST_PARAMETER,
+                    "정산 연월은 yyyy-MM 형식이어야 합니다."
+            );
+        }
+
+        try {
+            return YearMonth.parse(month);
+        } catch (DateTimeParseException e) {
+            throw new BusinessException(
+                    GlobalErrorCode.INVALID_REQUEST_PARAMETER,
+                    "정산 연월은 yyyy-MM 형식이어야 합니다."
             );
         }
     }
