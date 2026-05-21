@@ -1,23 +1,25 @@
 spring:
+  config:
+    import: optional:file:.env[.properties]
 
   datasource:
-    url: ${DB_URL}
-    driver-class-name: ${DB_DRIVER_CLASS_NAME}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: ${DB_URL:jdbc:h2:mem:settlement;MODE=MySQL;DATABASE_TO_LOWER=TRUE}
+    driver-class-name: ${DB_DRIVER_CLASS_NAME:org.h2.Driver}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
 
   h2:
     console:
-      enabled: ${H2_CONSOLE_ENABLED}
-      path: ${H2_CONSOLE_PATH}
+      enabled: ${H2_CONSOLE_ENABLED:true}
+      path: ${H2_CONSOLE_PATH:/h2-console}
 
   jpa:
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO}
+      ddl-auto: ${JPA_DDL_AUTO:create}
     properties:
       hibernate:
-        format_sql: ${JPA_FORMAT_SQL}
-    show-sql: ${JPA_SHOW_SQL}
+        format_sql: ${JPA_FORMAT_SQL:true}
+    show-sql: ${JPA_SHOW_SQL:true}
     defer-datasource-initialization: true
 
   sql:

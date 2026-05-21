@@ -2,10 +2,12 @@ package hello.liveclass_be_b.creator.entity;
 
 import hello.liveclass_be_b.course.entity.Course;
 import jakarta.persistence.*;
+import lombok.Getter;
 
 import java.util.ArrayList;
 import java.util.List;
 
+@Getter
 @Entity
 public class Creator {
 
