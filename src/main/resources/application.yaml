@@ -26,3 +26,6 @@ spring:
     init:
       mode: always
       encoding: UTF-8
+
+settlement:
+  platform-fee-rate: ${SETTLEMENT_PLATFORM_FEE_RATE:20}

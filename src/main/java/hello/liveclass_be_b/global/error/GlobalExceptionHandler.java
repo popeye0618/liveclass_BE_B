@@ -6,6 +6,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -106,6 +107,20 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(GlobalErrorCode.METHOD_NOT_ALLOWED.getHttpStatus())
+                .body(ApiResponse.error(errorResponse));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingServletRequestParameterException(
+            MissingServletRequestParameterException e
+    ) {
+        ErrorResponse errorResponse = ErrorResponse.of(
+                GlobalErrorCode.INVALID_REQUEST_PARAMETER,
+                e.getParameterName() + " 파라미터는 필수입니다."
+        );
+
+        return ResponseEntity
+                .badRequest()
                 .body(ApiResponse.error(errorResponse));
     }
 
