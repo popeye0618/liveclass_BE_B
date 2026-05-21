@@ -1,5 +1,6 @@
 package hello.liveclass_be_b.sale_record.entity;
 
+import hello.liveclass_be_b.cancel_record.entity.CancelRecord;
 import hello.liveclass_be_b.course.entity.Course;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -8,6 +9,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Getter
 @Entity
@@ -24,6 +27,9 @@ public class SaleRecord {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "course_id")
     private Course course;
+
+    @OneToMany(mappedBy = "saleRecord", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<CancelRecord> cancelRecordList = new ArrayList<>();
 
     @Builder
     public SaleRecord(String id, String studentId, Long amount, OffsetDateTime paidAt, Course course) {
